@@ -10,13 +10,16 @@ feedback.
 """
 import configparser
 import os
+import sys
 
-from autogen import ConversableAgent
+import json
+
+from autogen import ConversableAgent, GroupChat, GroupChatManager
 
 from config import config
-from agents.event_tracker import EventTrackerAgent
-from agents.explanation_generator import ExplanationGeneratorAgent
-from agents.evaluator import EvaluatorAgent
+#from agents.event_tracker import EventTrackerAgent
+#from agents.explanation_generator import ExplanationGeneratorAgent
+#from agents.evaluator import EvaluatorAgent
 
 class GenExplain:
     """Generate explanations for actions and adaptations made by AI agents.
@@ -43,6 +46,110 @@ class GenExplain:
 
     """
 
+    def __init__(self, config_file: str = "config.ini"):
+        """Initialize the GenExplain framework.
+
+        Args:
+            config_file (str): The path to the configuration file.
+
+        """
+        self.config = configparser.ConfigParser()
+        self.config.read(config_file)
+
+        self.event_collector = ConversableAgent(
+            name="EventCollectorAgent",
+            system_message="You are responsible for collecting events from the system.",
+            llm_config={"config_list": [{"model": "gpt-4", "api_key": os.environ.get("OPENAI_API_KEY")}]},
+            code_execution_config=False,
+            function_map=None,
+            human_input_mode="NEVER",
+        )
+
+        self.event_tracker = ConversableAgent(
+            name="EventTrackerAgent",
+            system_message="You are responsible for recording and tracking events, and outputting them in a structured format.",
+            llm_config={"config_list": [{"model": "gpt-4", "api_key": os.environ.get("OPENAI_API_KEY")}]},
+            code_execution_config=False,
+            function_map=None,
+            human_input_mode="NEVER",
+        )
+
+        self.explanation_generator = ConversableAgent(
+            name="ExplanationGeneratorAgent",
+            system_message="You are responsible for generating explanations for events.",
+            llm_config={"config_list": [{"model": "gpt-4", "api_key": os.environ.get("OPENAI_API_KEY")}]},
+            code_execution_config=False,
+            function_map=None,
+            human_input_mode="NEVER",
+        )
+
+        self.evaluator = ConversableAgent(
+            name="EvaluatorAgent",
+            system_message="You are responsible for evaluating the quality of explanations.",
+            llm_config={"config_list": [{"model": "gpt-4", "api_key": os.environ.get("OPENAI_API_KEY")}]},
+            code_execution_config=False,
+            function_map=None,
+            human_input_mode="NEVER",
+        )
+
+    def run(self, logs_json: str):
+        """Run the GenExplain framework.
+
+        Args:
+            logs_json (str): The path to the log entries in JSON format.
+
+        """
+
+        group_chat = GroupChat(
+            agents=[self.event_collector, self.event_tracker, self.explanation_generator, self.evaluator],
+            messages=[],
+            max_round=6,
+            send_introductions=True,
+        )
+
+        group_chat_manager = GroupChatManager(
+            groupchat=group_chat,
+            llm_config={"config_list": [{"model": "gpt-4", "api_key": os.environ["OPENAI_API_KEY"]}]},
+        )
+
+        chat_results = self.event_collector.initiate_chats(
+            [
+                {
+                    "recipient": self.event_tracker,
+                    "message": logs_json,
+                },
+                {
+                    "recipient": self.explanation_generator,
+                    "message": "Here are the recorded events.",
+                },
+                {
+                    "recipient": self.evaluator,
+                    "message": "Here are the generated explanations.",
+                },
+            ]
+        )
+
+
 
 if __name__ == '__main__':
-    pass
+
+    genexplain = GenExplain()
+
+    # Read the log entries from files located in the directory passed as an
+    # argument. If no directory is passed, read the log entries from the
+    # default directory.
+    log_dir = sys.argv[1] if len(sys.argv) > 1 else config.DATA_PATH
+    # Read JSON log entries into a single text string
+    logs_json = {}
+    for log_file in log_dir.glob("*.json"):
+        with open(log_file, "r") as file:
+            logs_json[log_file.stem] = json.load(file)
+
+    print(logs_json)
+    #breakpoint()
+
+    # Run the GenExplain framework with the log entries.
+    genexplain.run(str(logs_json))
+
+
+
